@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from PIL import Image, ImageDraw, ImageFont
 
-FONT_PATH = os.path.join(os.path.dirname(__file__), "fonts", "digital-7.ttf")
+FONT_PATH = os.path.join(os.path.dirname(__file__), "digital-7.ttf")
 
 # Countdown target: 10:00 AM Pacific (PST), November 27, 2026
 END = datetime(2026, 11, 27, 10, 0, 0, tzinfo=ZoneInfo("America/Los_Angeles"))
