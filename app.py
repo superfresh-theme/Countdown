@@ -1,6 +1,7 @@
 """Tiny web server: every request to /countdown.gif returns a fresh, accurate GIF.
 
 Optional colors via query string, e.g. /countdown.gif?bg=000000&fg=ff2b2b&label=bbbbbb
+Health check: /ping returns "ok" instantly.
 """
 import re
 
@@ -17,6 +18,11 @@ def _color(name, default):
     return "#" + v if HEX.match(v) else default
 
 
+@app.route("/ping")
+def ping():
+    return "ok"
+
+
 @app.route("/")
 @app.route("/countdown.gif")
 def countdown():
@@ -27,6 +33,7 @@ def countdown():
         "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
         "Pragma": "no-cache",
         "Expires": "0",
+        "Content-Length": str(len(gif)),
     })
 
 
