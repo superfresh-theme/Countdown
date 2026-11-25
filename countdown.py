@@ -1,18 +1,31 @@
-"""Render an animated countdown GIF (60 one-second frames) in the Digital-7 font."""
+"""Render an animated countdown GIF (60 one-second frames) in the Digital-7 font.
+
+Built to be fast on small servers: the labels and colons are drawn once,
+and each frame only redraws the digits.
+"""
 import io
 import os
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from zoneinfo import ZoneInfo
 
 from PIL import Image, ImageDraw, ImageFont
 
-FONT_PATH = os.path.join(os.path.dirname(__file__), "digital-7.ttf")
+_HERE = os.path.dirname(os.path.abspath(__file__))
+# Works whether the font sits next to this file or inside a "fonts" folder
+FONT_PATH = next(
+    (p for p in (os.path.join(_HERE, "digital-7.ttf"), os.path.join(_HERE, "fonts", "digital-7.ttf"))
+     if os.path.exists(p)),
+    os.path.join(_HERE, "digital-7.ttf"),
+)
 
 # Countdown target: 10:00 AM Pacific (PST), November 27, 2026
 END = datetime(2026, 11, 27, 10, 0, 0, tzinfo=ZoneInfo("America/Los_Angeles"))
 
 W, H = 600, 170
-SCALE = 2  # draw at 2x, then downscale for smoother edges
+LABELS = ("DAYS", "HOURS", "MINUTES", "SECONDS")
+DIGIT_TOP = 22
+GAP = 4
 
 
 def _hex(c):
@@ -20,55 +33,60 @@ def _hex(c):
     return tuple(int(c[i:i + 2], 16) for i in (0, 2, 4))
 
 
-def _draw_frame(remaining, bg, fg, label_color, fonts):
-    big, small = fonts
-    s = SCALE
-    img = Image.new("RGB", (W * s, H * s), bg)
-    d = ImageDraw.Draw(img)
+@lru_cache(maxsize=1)
+def _fonts():
+    return ImageFont.truetype(FONT_PATH, 96), ImageFont.truetype(FONT_PATH, 24)
 
-    total = max(0, int(remaining.total_seconds()))
+
+@lru_cache(maxsize=16)
+def _base(bg, fg, label):
+    """Background with labels and colons; drawn once per color scheme."""
+    big, small = _fonts()
+    img = Image.new("RGB", (W, H), bg)
+    d = ImageDraw.Draw(img)
+    col_w = W // 4
+    for i, text in enumerate(LABELS):
+        cx = col_w * i + col_w // 2
+        d.text((cx - small.getlength(text) / 2, 122), text, font=small, fill=label)
+        if i < 3:
+            d.text((col_w * (i + 1) - big.getlength(":") / 2, DIGIT_TOP), ":", font=big, fill=fg)
+    return img
+
+
+def _frame(seconds_left, bg, fg, label):
+    big, _ = _fonts()
+    img = _base(bg, fg, label).copy()
+    d = ImageDraw.Draw(img)
+    total = max(0, seconds_left)
     days, rem = divmod(total, 86400)
     hours, rem = divmod(rem, 3600)
     mins, secs = divmod(rem, 60)
-    units = [(f"{days:02d}", "DAYS"), (f"{hours:02d}", "HOURS"),
-             (f"{mins:02d}", "MINUTES"), (f"{secs:02d}", "SECONDS")]
-
-    col_w = W * s // 4
-    cell = big.getlength("0")  # fixed digit cell so "1" doesn't make numbers jump
-    digit_top = 22 * s
-    for i, (num, label) in enumerate(units):
+    col_w = W // 4
+    cell = big.getlength("0")  # fixed cell so "1" doesn't make numbers jump
+    for i, num in enumerate((f"{days:02d}", f"{hours:02d}", f"{mins:02d}", f"{secs:02d}")):
         cx = col_w * i + col_w // 2
-        width = cell * len(num) + 4 * s * (len(num) - 1)
-        x = cx - width / 2
+        x = cx - (cell * len(num) + GAP * (len(num) - 1)) / 2
         for ch in num:
-            # right-align each glyph in its cell, like a real 7-segment display
-            d.text((x + cell - big.getlength(ch), digit_top), ch, font=big, fill=fg)
-            x += cell + 4 * s
-        lw = small.getlength(label)
-        d.text((cx - lw / 2, 122 * s), label, font=small, fill=label_color)
-        if i < 3:  # colon separators between columns
-            colon_x = col_w * (i + 1) - big.getlength(":") / 2
-            d.text((colon_x, digit_top), ":", font=big, fill=fg)
-
-    return img.resize((W, H), Image.LANCZOS)
+            d.text((x + cell - big.getlength(ch), DIGIT_TOP), ch, font=big, fill=fg)
+            x += cell + GAP
+    return img
 
 
 def render_gif(now=None, end=END, bg="#000000", fg="#ff2b2b", label="#bbbbbb", frames=60):
     now = now or datetime.now(timezone.utc)
-    fonts = (ImageFont.truetype(FONT_PATH, 96 * SCALE), ImageFont.truetype(FONT_PATH, 24 * SCALE))
     bg, fg, label = _hex(bg), _hex(fg), _hex(label)
-    remaining = end - now
+    start = int((end - now).total_seconds())
     imgs = []
     for i in range(frames):
-        r = remaining - timedelta(seconds=i)
-        imgs.append(_draw_frame(r, bg, fg, label, fonts))
-        if r.total_seconds() <= 0:
+        left = start - i
+        imgs.append(_frame(left, bg, fg, label))
+        if left <= 0:
             break  # stop at 00:00:00:00
-    pal = imgs[0].quantize(colors=32, method=Image.MEDIANCUT)  # one shared palette = smaller file
+    pal = imgs[0].quantize(colors=32, method=Image.MEDIANCUT)  # one shared palette = small file
     imgs = [im.quantize(palette=pal, dither=Image.Dither.NONE) for im in imgs]
     buf = io.BytesIO()
     imgs[0].save(buf, format="GIF", save_all=True, append_images=imgs[1:],
-                 duration=1000, loop=0, optimize=True, disposal=1)
+                 duration=1000, loop=0, optimize=False, disposal=1)
     return buf.getvalue()
 
 
