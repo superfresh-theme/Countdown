@@ -19,8 +19,8 @@ FONT_PATH = next(
     os.path.join(_HERE, "digital-7.ttf"),
 )
 
-# Countdown target: 10:00 AM Pacific (PST), November 27, 2026
-END = datetime(2026, 11, 27, 10, 0, 0, tzinfo=ZoneInfo("America/Los_Angeles"))
+# Countdown target: 8:00 AM Pacific (PST), November 27, 2026
+END = datetime(2026, 11, 27, 8, 0, 0, tzinfo=ZoneInfo("America/Los_Angeles"))
 
 W, H = 600, 170
 LABELS = ("DAYS", "HOURS", "MINUTES", "SECONDS")
